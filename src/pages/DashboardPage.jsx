@@ -283,3 +283,69 @@ export const DashboardPage = () => {
     </div>
   );
 };
+
+
+/* DashboardPage.jsx - Key handleSubmit logic */
+
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setError('');
+  setSuccess('');
+
+  if (!file) {
+    setError('Please select an image');
+    return;
+  }
+
+  setUploading(true);
+
+  try {
+    // 1. Upload to Supabase Storage
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random()}.${fileExt}`;
+    const filePath = `${user.id}/${fileName}`;
+
+    const { error: uploadError, data: uploadData } = await supabase.storage
+      .from('images')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: false
+      });
+
+    if (uploadError) {
+       // If you see "Bucket not found" here, you MUST create it in the dashboard
+       throw new Error(`Storage Error: ${uploadError.message}`);
+    }
+
+    // 2. Get public URL
+    const { data: { publicUrl } } = supabase.storage
+      .from('images')
+      .getPublicUrl(filePath);
+
+    // 3. Insert Database record
+    const { error: dbError } = await supabase
+      .from('images')
+      .insert({
+        user_id: user.id,
+        title: title || 'Untitled',
+        description: description || '',
+        image_url: publicUrl,
+      });
+
+    if (dbError) throw new Error(`Database Error: ${dbError.message}`);
+
+    setSuccess('Artwork uploaded successfully!');
+    setTitle('');
+    setDescription('');
+    setFile(null);
+    setPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    fetchUserImages();
+
+  } catch (err) {
+    console.error("Upload process failed:", err);
+    setError(err.message);
+  } finally {
+    setUploading(false);
+  }
+};

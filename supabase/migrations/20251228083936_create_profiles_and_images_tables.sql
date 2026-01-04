@@ -1,105 +1,60 @@
+-- 1. Allow the public to view any image in the 'images' bucket
+CREATE POLICY "Public View Access" 
+ON storage.objects FOR SELECT 
+USING (bucket_id = 'images');
 
--- Create profiles table
-CREATE TABLE IF NOT EXISTS profiles (
-  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  username text UNIQUE NOT NULL,
-  full_name text DEFAULT '',
-  bio text DEFAULT '',
-  avatar_url text DEFAULT '',
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now()
+-- 2. Allow authenticated users to upload into their own folder
+-- This matches your code: `const filePath = `${user.id}/${Date.now()}.${fileExt}`;`
+CREATE POLICY "Authenticated users can upload images"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (
+    bucket_id = 'images' AND 
+    (storage.foldername(name))[1] = auth.uid()::text
 );
 
--- Create images table
-CREATE TABLE IF NOT EXISTS images (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
-  title text DEFAULT '',
-  description text DEFAULT '',
-  image_url text NOT NULL,
-  created_at timestamptz DEFAULT now(),
-  views integer DEFAULT 0
-);
-
--- Create indexes for better query performance
-CREATE INDEX IF NOT EXISTS profiles_username_idx ON profiles(username);
-CREATE INDEX IF NOT EXISTS images_user_id_idx ON images(user_id);
-CREATE INDEX IF NOT EXISTS images_created_at_idx ON images(created_at DESC);
-
--- Enable Row Level Security
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE images ENABLE ROW LEVEL SECURITY;
-
--- Profiles policies
-CREATE POLICY "Anyone can view profiles"
-  ON profiles FOR SELECT
-  TO authenticated, anon
-  USING (true);
-
-CREATE POLICY "Users can insert own profile"
-  ON profiles FOR INSERT
-  TO authenticated
-  WITH CHECK (auth.uid() = id);
-
-CREATE POLICY "Users can update own profile"
-  ON profiles FOR UPDATE
-  TO authenticated
-  USING (auth.uid() = id)
-  WITH CHECK (auth.uid() = id);
-
--- Images policies
-CREATE POLICY "Anyone can view images"
-  ON images FOR SELECT
-  TO authenticated, anon
-  USING (true);
-
-CREATE POLICY "Users can insert own images"
-  ON images FOR INSERT
-  TO authenticated
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own images"
-  ON images FOR UPDATE
-  TO authenticated
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
-
+-- 3. Allow users to delete only their own images
 CREATE POLICY "Users can delete own images"
-  ON images FOR DELETE
-  TO authenticated
-  USING (auth.uid() = user_id);
+ON storage.objects FOR DELETE
+TO authenticated
+USING (
+    bucket_id = 'images' AND 
+    (storage.foldername(name))[1] = auth.uid()::text
+);
 
--- Function to automatically create profile on user signup
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger AS $$
-BEGIN
-  INSERT INTO public.profiles (id, username, full_name)
-  VALUES (
-    new.id,
-    COALESCE(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
-    COALESCE(new.raw_user_meta_data->>'full_name', '')
-  );
-  RETURN new;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Trigger to create profile on signup
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+-- Remove old policies to prevent conflicts
+DROP POLICY IF EXISTS "Users can insert own images" ON public.images;
 
--- Function to update updated_at timestamp
-CREATE OR REPLACE FUNCTION public.handle_updated_at()
-RETURNS trigger AS $$
-BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+-- Allow authenticated users to insert records into the images table
+-- provided the user_id in the row matches their own ID
+CREATE POLICY "Users can insert own images"
+ON public.images FOR INSERT
+TO authenticated
+WITH CHECK (auth.uid() = user_id);
 
--- Trigger to update updated_at on profile changes
-DROP TRIGGER IF EXISTS on_profile_updated ON profiles;
-CREATE TRIGGER on_profile_updated
-  BEFORE UPDATE ON profiles
-  FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+-- Ensure public/authenticated can view the records
+DROP POLICY IF EXISTS "Anyone can view images" ON public.images;
+CREATE POLICY "Anyone can view images"
+ON public.images FOR SELECT
+USING (true);
+
+
+
+-- Allow authenticated users to upload to 'images' bucket
+CREATE POLICY "Allow authenticated uploads"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (bucket_id = 'images');
+
+-- Allow anyone to see images in the 'images' bucket
+CREATE POLICY "Public Access" 
+ON storage.objects FOR SELECT 
+USING (bucket_id = 'images');
+
+-- Ensure the 'images' table accepts uploads from the owner
+DROP POLICY IF EXISTS "Users can insert own images" ON public.images;
+CREATE POLICY "Users can insert own images"
+ON public.images FOR INSERT
+TO authenticated
+WITH CHECK (auth.uid() = user_id);

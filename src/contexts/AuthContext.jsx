@@ -17,6 +17,7 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Check active session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -26,17 +27,17 @@ export const AuthProvider = ({ children }) => {
       }
     });
 
-    const { data: { subscription } } =
-      supabase.auth.onAuthStateChange((_event, session) => {
-        setUser(session?.user ?? null);
-
-        if (session?.user) {
-          fetchProfile(session.user.id);
-        } else {
-          setProfile(null);
-          setLoading(false);
-        }
-      });
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+      
+      if (session?.user) {
+        fetchProfile(session.user.id);
+      } else {
+        setProfile(null);
+        setLoading(false);
+      }
+    });
 
     return () => subscription.unsubscribe();
   }, []);
@@ -47,91 +48,93 @@ export const AuthProvider = ({ children }) => {
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .maybeSingle();
+        .maybeSingle(); // Use maybeSingle to avoid errors if profile doesn't exist yet
 
-      if (error) throw error;
-      setProfile(data);
+      if (error) {
+        console.warn("Profile fetch warning:", error.message);
+      } else {
+        setProfile(data);
+      }
     } catch (err) {
-      console.error('Error fetching profile:', err);
+      console.error('Unexpected error fetching profile:', err);
     } finally {
       setLoading(false);
     }
   };
 
   /* ===========================
-     SIGN UP (FIXED)
-  ============================ */
-  const signUp = async (email, password, username, fullName) => {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            username,
-            full_name: fullName,
-          },
+      SIGN UP (CORRECTED)
+   ============================ */
+  
+   /* AuthContext.jsx - Key Section Changes */
+
+const signUp = async (email, password, username, fullName) => {
+  try {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          username: username,
+          full_name: fullName,
         },
-      });
+      },
+    });
 
-      if (error) return { error };
+    if (error) return { error };
 
-      // 🔥 KEY FIX: detect existing email
-      if (data.user && data.user.identities?.length === 0) {
-        return {
-          error: new Error(
-            'An account with this email already exists. Please log in.'
-          ),
-        };
-      }
-
-      return { error: null };
-    } catch (err) {
-      return { error: err };
+    // Use a small delay or a check to ensure the trigger or manual insert works
+    // If you have the SQL Trigger from earlier, REMOVE the manual insert below.
+    // If you do NOT have a trigger, keep this:
+    if (data.user) {
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert([{ 
+          id: data.user.id, 
+          username: username, 
+          full_name: fullName 
+        }]);
+      if (profileError) console.error("Profile row error:", profileError.message);
     }
-  };
+
+    return { data, error: null };
+  } catch (err) {
+    return { error: err };
+  }
+};
 
   /* ===========================
-     SIGN IN
-  ============================ */
+      SIGN IN (CORRECTED)
+   ============================ */
   const signIn = async (email, password) => {
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      return { error };
+      if (error) {
+        // Handle "Email not confirmed" specifically
+        if (error.message.includes("Email not confirmed")) {
+          return { error: new Error("Please check your email to confirm your account before logging in.") };
+        }
+        return { error }; // Return exact Supabase error (Invalid login credentials)
+      }
+
+      return { data, error: null };
     } catch (err) {
       return { error: err };
     }
   };
 
-  /* ===========================
-     SIGN OUT (SAFE)
-  ============================ */
   const signOut = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (err) {
-      console.warn('Logout error:', err);
-    } finally {
-      setUser(null);
-      setProfile(null);
-    }
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        profile,
-        loading,
-        signUp,
-        signIn,
-        signOut,
-      }}
-    >
+    <AuthContext.Provider value={{ user, profile, loading, signUp, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );
