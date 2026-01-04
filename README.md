@@ -111,9 +111,6 @@ Join a vibrant community where you can upload unlimited artwork, create your pub
 ### Prerequisites
 - Node.js (v18 or higher)
 - npm or yarn
-- Bolt Database account
+- Supabase
 
-### 1️⃣ Clone the Repository
-```bash
-git clone https://github.com/debangshucode/Full-Stack-Web-Application-Creative-Showcase.git
-cd Full-Stack-Web-Application-Creative-Showcase
+
