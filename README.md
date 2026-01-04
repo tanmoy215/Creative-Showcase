@@ -7,7 +7,7 @@
     <a href="https://full-stack-web-application-creative.vercel.app/">
       <img src="https://img.shields.io/badge/Live%20Demo-Visit%20Now-brightgreen?style=for-the-badge&logo=vercel" alt="Live Demo">
     </a>
-    <a href="https://github.com/debangshucode/Full-Stack-Web-Application-Creative-Showcase">
+    <a href="https://github.com/tanmoy215/Creative-Showcase">
       <img src="https://img.shields.io/badge/GitHub-Repository-blue?style=for-the-badge&logo=github" alt="GitHub">
     </a>
   </p>
